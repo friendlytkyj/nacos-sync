@@ -64,7 +64,7 @@ public final class DubboConstants {
         Predicate<String> isBlankGroup = StringUtils::isBlank;
         Predicate<String> isNotBlankRelease = StringUtils::isNotBlank;
         String serviceName = Joiner.on(SEPARATOR_KEY).skipNulls().join(CATALOG_KEY, queryParam.get(INTERFACE_KEY),
-            queryParam.get(VERSION_KEY), group);
+            StringUtils.defaultIfBlank(queryParam.get(VERSION_KEY), ""), StringUtils.defaultIfBlank(group,""));
 
         //TODO The code here is to deal with service metadata format problems caused by dubbo version incompatibility
         if (isBlankGroup.test(group) && isNotBlankRelease.test(release)) {
