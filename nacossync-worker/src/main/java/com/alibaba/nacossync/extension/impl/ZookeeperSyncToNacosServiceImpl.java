@@ -55,6 +55,7 @@ import org.apache.curator.framework.CuratorFramework;
 import org.apache.curator.framework.recipes.cache.TreeCache;
 import org.apache.curator.framework.recipes.cache.TreeCacheEvent;
 import org.apache.curator.utils.CloseableUtils;
+import org.apache.zookeeper.KeeperException;
 import org.springframework.beans.factory.annotation.Autowired;
 
 /**
@@ -109,7 +110,7 @@ public class ZookeeperSyncToNacosServiceImpl implements SyncService {
 
                     String path = event.getData().getPath();
                     Map<String, String> queryParam = parseQueryString(path);
-                    if (isMatch(taskDO, queryParam) && needSync(queryParam)) {
+                     if (isMatch(taskDO, queryParam) && needSync(queryParam)) {
                         processEvent(taskDO, destNamingService, event, path, queryParam);
                     }
                 } catch (Exception e) {
@@ -119,6 +120,7 @@ public class ZookeeperSyncToNacosServiceImpl implements SyncService {
 
             });
         } catch (Exception e) {
+            treeCacheMap.remove(taskDO.getTaskId());
             log.error("sync task from Zookeeper to Nacos was failed, taskId:{}", taskDO.getTaskId(), e);
             metricsManager.recordError(MetricsStatisticsType.SYNC_ERROR);
             return false;
@@ -164,7 +166,11 @@ public class ZookeeperSyncToNacosServiceImpl implements SyncService {
             // 同步全部
             List<String> serviceList = zk.getChildren().forPath(DUBBO_ROOT_PATH);
             for (String serviceName : serviceList) {
-                registerALLInstances0(taskDO, destNamingService, zk, serviceName);
+                try {
+                    registerALLInstances0(taskDO, destNamingService, zk, serviceName);
+                } catch (KeeperException.NoNodeException e) {
+                    log.error("regist service from Zookeeper to Nacos was failed, taskId:{}, serviceName:{}", taskDO.getTaskId(), serviceName);
+                }
             }
         }
     }
