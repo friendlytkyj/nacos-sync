@@ -42,6 +42,7 @@ import org.springframework.beans.factory.annotation.Autowired;
 import java.io.UnsupportedEncodingException;
 import java.util.*;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.stream.Collectors;
 
 import static com.alibaba.nacossync.util.DubboConstants.*;
 import static com.alibaba.nacossync.util.NacosUtils.getGroupNameOrDefault;
@@ -193,7 +194,7 @@ public class NacosSyncToZookeeperServiceImpl implements SyncService {
                     nacosListenerMap.get(taskDO.getTaskId()));
         } else {
             // 订阅全部
-            List<String> serviceList = namingService.getServicesOfServer(0, Integer.MAX_VALUE, taskDO.getGroupName()).getData();
+            List<String> serviceList = namingService.getServicesOfServer(0, Integer.MAX_VALUE, taskDO.getGroupName()).getData().stream().filter(s->!StringUtils.startsWith(s, CONSUMERS_KEY)).collect(Collectors.toList());
             for (String serviceName : serviceList) {
                 namingService.subscribe(serviceName,getGroupNameOrDefault(taskDO.getGroupName()), nacosListenerMap.get(taskDO.getTaskId()));
             }
