@@ -12,18 +12,11 @@
  */
 package com.alibaba.nacossync.extension.impl;
 
-import static com.alibaba.nacossync.util.DubboConstants.*;
-import static com.alibaba.nacossync.util.DubboConstants.ZOOKEEPER_SEPARATOR;
-import static com.alibaba.nacossync.util.NacosUtils.getGroupNameOrDefault;
-import static com.alibaba.nacossync.util.StringUtils.*;
-import static com.alibaba.nacossync.util.StringUtils.parseIpAndPortString;
-
 import com.alibaba.nacos.api.common.Constants;
 import com.alibaba.nacos.api.naming.NamingService;
 import com.alibaba.nacos.api.naming.listener.EventListener;
 import com.alibaba.nacos.api.naming.listener.NamingEvent;
 import com.alibaba.nacos.api.naming.pojo.Instance;
-import com.alibaba.nacos.api.naming.pojo.ListView;
 import com.alibaba.nacos.client.naming.utils.CollectionUtils;
 import com.alibaba.nacossync.cache.SkyWalkerCacheServices;
 import com.alibaba.nacossync.constant.ClusterTypeEnum;
@@ -31,25 +24,12 @@ import com.alibaba.nacossync.constant.MetricsStatisticsType;
 import com.alibaba.nacossync.constant.SkyWalkerConstants;
 import com.alibaba.nacossync.extension.SyncService;
 import com.alibaba.nacossync.extension.annotation.NacosSyncService;
-import com.alibaba.nacossync.extension.eureka.EurekaNamingService;
 import com.alibaba.nacossync.extension.holder.NacosServerHolder;
 import com.alibaba.nacossync.extension.holder.ZookeeperServerHolder;
 import com.alibaba.nacossync.monitor.MetricsManager;
 import com.alibaba.nacossync.pojo.model.TaskDO;
 import com.alibaba.nacossync.util.DubboConstants;
-import com.alibaba.nacossync.util.NacosUtils;
 import com.google.common.collect.Sets;
-import java.io.UnsupportedEncodingException;
-import java.util.ArrayList;
-import java.util.HashMap;
-import java.util.HashSet;
-import java.util.List;
-import java.util.Map;
-import java.util.Set;
-import java.util.concurrent.ConcurrentHashMap;
-
-import com.netflix.appinfo.InstanceInfo;
-import com.netflix.discovery.shared.Application;
 import lombok.extern.slf4j.Slf4j;
 import org.apache.commons.lang3.StringUtils;
 import org.apache.curator.framework.CuratorFramework;
@@ -58,6 +38,15 @@ import org.apache.curator.framework.recipes.cache.PathChildrenCacheEvent;
 import org.apache.curator.utils.CloseableUtils;
 import org.apache.zookeeper.CreateMode;
 import org.springframework.beans.factory.annotation.Autowired;
+
+import java.io.UnsupportedEncodingException;
+import java.util.*;
+import java.util.concurrent.ConcurrentHashMap;
+
+import static com.alibaba.nacossync.util.DubboConstants.*;
+import static com.alibaba.nacossync.util.NacosUtils.getGroupNameOrDefault;
+import static com.alibaba.nacossync.util.StringUtils.convertDubboFullPathForZk;
+import static com.alibaba.nacossync.util.StringUtils.convertDubboProvidersPath;
 
 /**
  * Nacos 同步 Zk 数据
@@ -140,13 +129,21 @@ public class NacosSyncToZookeeperServiceImpl implements SyncService {
     @Override
     public boolean sync(TaskDO taskDO) {
         try {
-            NamingService sourceNamingService =
-                nacosServerHolder.get(taskDO.getSourceClusterId());
+            NamingService sourceNamingService = nacosServerHolder.get(taskDO.getSourceClusterId());
             CuratorFramework client = zookeeperServerHolder.get(taskDO.getDestClusterId());
+            String consumerPrefix = CONSUMERS_KEY + SEPARATOR_KEY;
             nacosListenerMap.putIfAbsent(taskDO.getTaskId(), event -> {
                 if (event instanceof NamingEvent) {
                     try {
-                        registerAllInstances(taskDO, client, (NamingEvent) event);
+                        NamingEvent namingEvent = (NamingEvent)event;
+                        String prefix = taskDO.getGroupName() + Constants.SERVICE_INFO_SPLITER;
+                        String serviceName = StringUtils.removeStart(namingEvent.getServiceName(), prefix);
+                        // 消费者不需要同步
+                        if(StringUtils.startsWith(serviceName, consumerPrefix)) {
+                            return;
+                        }
+
+                        registerALLInstances0(taskDO, sourceNamingService, client, namingEvent, serviceName);
                     } catch (Exception e) {
                         log.error("event process fail, taskId:{}", taskDO.getTaskId(), e);
                         metricsManager.recordError(MetricsStatisticsType.SYNC_ERROR);
@@ -177,16 +174,14 @@ public class NacosSyncToZookeeperServiceImpl implements SyncService {
         }
     }
 
-    private void registerALLInstances0(TaskDO taskDO, NamingService sourceNamingService, CuratorFramework client, NamingEvent event,
-                                       String serviceName) throws Exception {
-        List<Instance> sourceInstances = sourceNamingService.getAllInstances(serviceName,
-                getGroupNameOrDefault(taskDO.getGroupName()), new ArrayList<>(), true);
+    private void registerALLInstances0(TaskDO taskDO, NamingService sourceNamingService, CuratorFramework client, NamingEvent event, String serviceName) throws Exception {
+        List<Instance> sourceInstances = sourceNamingService.getAllInstances(serviceName, getGroupNameOrDefault(taskDO.getGroupName()), new ArrayList<>(), true);
         Set<String> newInstanceUrlSet = getWaitingToAddInstance(taskDO, client, event, sourceInstances, serviceName);
 
         // 获取之前的备份 删除无效实例
-        deleteInvalidInstances(taskDO, client, newInstanceUrlSet);
+        deleteInvalidInstances(taskDO, serviceName, client, newInstanceUrlSet);
         // 替换当前备份为最新备份
-        instanceBackupMap.computeIfAbsent(taskDO.getTaskId(), (k)->new HashSet<>()).addAll(newInstanceUrlSet);
+        instanceBackupMap.computeIfAbsent(taskDO.getTaskId()+serviceName, (k)->new HashSet<>()).addAll(newInstanceUrlSet);
         // 尝试恢复因为zk客户端意外断开导致的实例数据
         tryToCompensate(taskDO, sourceNamingService, sourceInstances, event, serviceName);
     }
@@ -200,8 +195,7 @@ public class NacosSyncToZookeeperServiceImpl implements SyncService {
             // 订阅全部
             List<String> serviceList = namingService.getServicesOfServer(0, Integer.MAX_VALUE, taskDO.getGroupName()).getData();
             for (String serviceName : serviceList) {
-                namingService.subscribe(serviceName,getGroupNameOrDefault(taskDO.getGroupName()),
-                        nacosListenerMap.get(taskDO.getTaskId()));
+                namingService.subscribe(serviceName,getGroupNameOrDefault(taskDO.getGroupName()), nacosListenerMap.get(taskDO.getTaskId()));
             }
         }
     }
@@ -230,10 +224,9 @@ public class NacosSyncToZookeeperServiceImpl implements SyncService {
         }
     }
 
-    private void deleteInvalidInstances(TaskDO taskDO, CuratorFramework client, Set<String> newInstanceUrlSet)
+    private void deleteInvalidInstances(TaskDO taskDO, String serviceName, CuratorFramework client, Set<String> newInstanceUrlSet)
         throws Exception {
-        Set<String> instanceBackup =
-            instanceBackupMap.getOrDefault(taskDO.getTaskId(), Sets.newHashSet());
+        Set<String> instanceBackup = instanceBackupMap.getOrDefault(taskDO.getTaskId()+serviceName, Sets.newHashSet());
         for (String instanceUrl : instanceBackup) {
             if (newInstanceUrlSet.contains(instanceUrl)) {
                 continue;

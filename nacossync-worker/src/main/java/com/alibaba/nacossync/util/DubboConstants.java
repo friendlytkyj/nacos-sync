@@ -39,6 +39,7 @@ public final class DubboConstants {
     public static final String PROTOCOL_KEY = "protocol";
     public static final String WEIGHT_KEY = "weight";
     public static final String CATALOG_KEY = "providers";
+    public static final String CONSUMERS_KEY = "consumers";
     public static final String RELEASE_KEY = "release";
     public static final String SEPARATOR_KEY = ":";
     public static final int DUBBO_VERSION_INDEX = 2;
