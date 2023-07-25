@@ -214,6 +214,9 @@ public class NacosSyncToZookeeperServiceImpl implements SyncService {
     private void tryToCompensate(TaskDO taskDO, NamingService sourceNamingService, List<Instance> sourceInstances, NamingEvent event, String serviceName) {
         if (!CollectionUtils.isEmpty(sourceInstances)) {
             final PathChildrenCache pathCache = getPathCache(taskDO, serviceName);
+            if(Objects.isNull(pathCache)) {
+                return;
+            }
             if (pathCache.getListenable().size() == 0) { // 防止重复注册
                 pathCache.getListenable().addListener((zkClient, zkEvent) -> {
                     if (zkEvent.getType() == PathChildrenCacheEvent.Type.CHILD_REMOVED) {
@@ -285,13 +288,16 @@ public class NacosSyncToZookeeperServiceImpl implements SyncService {
      */
     private PathChildrenCache getPathCache(TaskDO taskDO, String serviceName) {
         return pathChildrenCacheMap.computeIfAbsent(taskDO.getTaskId()+serviceName, (key) -> {
+            if(!monitorPath.containsKey(key)) {
+                return null;
+            }
             try {
                 PathChildrenCache pathChildrenCache = new PathChildrenCache(
                     zookeeperServerHolder.get(taskDO.getDestClusterId()), monitorPath.get(key), false);
                 pathChildrenCache.start(PathChildrenCache.StartMode.BUILD_INITIAL_CACHE);
                 return pathChildrenCache;
             } catch (Exception e) {
-                log.error("zookeeper path children cache start failed, taskId:{}", taskDO.getTaskId(), e);
+                log.error("zookeeper path children cache start failed, taskId:{}, serviceName:{}", taskDO.getTaskId(), serviceName, e);
                 return null;
             }
         });

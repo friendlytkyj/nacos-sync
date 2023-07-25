@@ -274,9 +274,9 @@ public class ZookeeperSyncToNacosServiceImpl implements SyncService {
     protected boolean isMatch(TaskDO taskDO, Map<String, String> queryParam) {
         Predicate<TaskDO> isVersionEq = (task) -> StringUtils.isBlank(taskDO.getVersion())
             || StringUtils.equals(task.getVersion(), queryParam.get(VERSION_KEY));
-        Predicate<TaskDO> isGroupEq = (task) -> StringUtils.isBlank(taskDO.getGroupName())
-            || StringUtils.equals(task.getGroupName(), queryParam.get(GROUP_KEY));
-        return isVersionEq.and(isGroupEq).test(taskDO);
+//        Predicate<TaskDO> isGroupEq = (task) -> StringUtils.isBlank(taskDO.getGroupName())
+//            || StringUtils.equals(task.getGroupName(), queryParam.get(GROUP_KEY));
+        return isVersionEq.test(taskDO);
     }
 
     /**
