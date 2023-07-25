@@ -29,6 +29,7 @@ import com.alibaba.nacossync.extension.holder.ZookeeperServerHolder;
 import com.alibaba.nacossync.monitor.MetricsManager;
 import com.alibaba.nacossync.pojo.model.TaskDO;
 import com.alibaba.nacossync.util.DubboConstants;
+import com.google.common.base.Joiner;
 import com.google.common.collect.Sets;
 import lombok.extern.slf4j.Slf4j;
 import org.apache.commons.lang3.StringUtils;
@@ -37,6 +38,7 @@ import org.apache.curator.framework.recipes.cache.PathChildrenCache;
 import org.apache.curator.framework.recipes.cache.PathChildrenCacheEvent;
 import org.apache.curator.utils.CloseableUtils;
 import org.apache.zookeeper.CreateMode;
+import org.apache.zookeeper.KeeperException;
 import org.springframework.beans.factory.annotation.Autowired;
 
 import java.io.UnsupportedEncodingException;
@@ -193,8 +195,16 @@ public class NacosSyncToZookeeperServiceImpl implements SyncService {
             namingService.subscribe(taskDO.getServiceName(),getGroupNameOrDefault(taskDO.getGroupName()),
                     nacosListenerMap.get(taskDO.getTaskId()));
         } else {
-            // 订阅全部
-            List<String> serviceList = namingService.getServicesOfServer(0, Integer.MAX_VALUE, taskDO.getGroupName()).getData().stream().filter(s->!StringUtils.startsWith(s, CONSUMERS_KEY)).collect(Collectors.toList());
+            // 需要订阅的服务
+            Set<String> toListenServiceList = new HashSet<>();
+            // 订阅全部Nacos服务
+            List<String> serviceList = namingService.getServicesOfServer(0, Integer.MAX_VALUE, getGroupNameOrDefault(taskDO.getGroupName())).getData().stream().filter(s->!StringUtils.startsWith(s, CONSUMERS_KEY)).collect(Collectors.toList());
+            toListenServiceList.addAll(serviceList);
+            // 订阅zk未迁移nacos的服务，等这些服务注册到nacos的时候可以收到监听事件，才能同步给zk
+            CuratorFramework client = zookeeperServerHolder.get(taskDO.getDestClusterId());
+            List<String> zkServiceList = client.getChildren().forPath(DUBBO_ROOT_PATH).stream().map(s-> Joiner.on(SEPARATOR_KEY).skipNulls().join(CATALOG_KEY, s, "", "")).collect(Collectors.toList());
+            toListenServiceList.addAll(zkServiceList);
+
             for (String serviceName : serviceList) {
                 namingService.subscribe(serviceName,getGroupNameOrDefault(taskDO.getGroupName()), nacosListenerMap.get(taskDO.getTaskId()));
             }
