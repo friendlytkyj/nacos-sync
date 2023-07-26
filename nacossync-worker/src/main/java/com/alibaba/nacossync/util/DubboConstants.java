@@ -66,13 +66,6 @@ public final class DubboConstants {
         Predicate<String> isNotBlankRelease = StringUtils::isNotBlank;
         String serviceName = Joiner.on(SEPARATOR_KEY).skipNulls().join(CATALOG_KEY, queryParam.get(INTERFACE_KEY),
             queryParam.get(VERSION_KEY), group);
-        if(!StringUtils.endsWith(serviceName, SEPARATOR_KEY_2)) {
-            if(StringUtils.endsWith(serviceName, SEPARATOR_KEY)) {
-                serviceName += SEPARATOR_KEY;
-            } else {
-                serviceName += SEPARATOR_KEY_2;
-            }
-        }
 
         //TODO The code here is to deal with service metadata format problems caused by dubbo version incompatibility
         if (isBlankGroup.test(group) && isNotBlankRelease.test(release)) {
@@ -96,6 +89,15 @@ public final class DubboConstants {
                 }
             }
         }
+
+        if(!StringUtils.endsWith(serviceName, SEPARATOR_KEY_2)) {
+            if(StringUtils.endsWith(serviceName, SEPARATOR_KEY)) {
+                serviceName += SEPARATOR_KEY;
+            } else {
+                serviceName += SEPARATOR_KEY_2;
+            }
+        }
+
         return serviceName;
     }
 
