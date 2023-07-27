@@ -37,7 +37,7 @@ import static com.alibaba.nacossync.util.NacosUtils.getGroupNameOrDefault;
 @Slf4j
 public abstract class AbstractNacosSync implements SyncService {
     
-    private final Map<String, EventListener> listenerMap = new ConcurrentHashMap<>();
+    protected final Map<String, EventListener> listenerMap = new ConcurrentHashMap<>();
     
     private final Map<String, Set<String>> sourceInstanceSnapshot = new ConcurrentHashMap<>();
     
@@ -133,19 +133,10 @@ public abstract class AbstractNacosSync implements SyncService {
         return true;
     }
 
-    private void subscribeAllService(TaskDO taskDO) throws Exception {
-        NamingService namingService = nacosServerHolder.get(taskDO.getSourceClusterId());
-        if (!ALL_SERVICE_NAME_PATTERN.equals(taskDO.getServiceName())) {
-            namingService.subscribe(taskDO.getServiceName(), getGroupNameOrDefault(taskDO.getGroupName()),
-                    listenerMap.get(taskDO.getTaskId()));
-        } else {
-            // 订阅全部
-            List<String> serviceList = namingService.getServicesOfServer(0, Integer.MAX_VALUE, taskDO.getGroupName()).getData();
-            for (String serviceName : serviceList) {
-                namingService.subscribe(serviceName, getGroupNameOrDefault(taskDO.getGroupName()),
-                        listenerMap.get(taskDO.getTaskId()));
-            }
-        }
+    protected void subscribeAllService(TaskDO taskDO) throws Exception {
+        NamingService sourceNamingService = nacosServerHolder.get(taskDO.getSourceClusterId());
+        sourceNamingService.subscribe(taskDO.getServiceName(), getGroupNameOrDefault(taskDO.getGroupName()),
+                listenerMap.get(taskDO.getTaskId()));
     }
     
     private void doSync(String taskId, TaskDO taskDO, NamingService sourceNamingService) throws NacosException {

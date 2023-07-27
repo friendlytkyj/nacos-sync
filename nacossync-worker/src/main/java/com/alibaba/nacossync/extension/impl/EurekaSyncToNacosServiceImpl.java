@@ -31,6 +31,7 @@ import com.alibaba.nacossync.util.NacosUtils;
 import com.netflix.appinfo.InstanceInfo;
 import com.netflix.discovery.shared.Application;
 import lombok.extern.slf4j.Slf4j;
+import org.apache.commons.lang3.StringUtils;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.util.CollectionUtils;
 
@@ -116,7 +117,7 @@ public class EurekaSyncToNacosServiceImpl implements SyncService {
             // 同步全部
             List<Application> applications = eurekaNamingService.getApplications();
             for (Application application : applications) {
-                registerALLInstances0(taskDO, destNamingService, eurekaNamingService, application.getName());
+                registerALLInstances0(taskDO, destNamingService, eurekaNamingService, StringUtils.lowerCase(application.getName()));
             }
         }
     }

@@ -205,7 +205,7 @@ public class NacosSyncToZookeeperServiceImpl implements SyncService {
             List<String> zkServiceList = client.getChildren().forPath(DUBBO_ROOT_PATH).stream().map(s-> Joiner.on(SEPARATOR_KEY).skipNulls().join(CATALOG_KEY, s, "", "")).collect(Collectors.toList());
             toListenServiceList.addAll(zkServiceList);
 
-            for (String serviceName : serviceList) {
+            for (String serviceName : toListenServiceList) {
                 namingService.subscribe(serviceName,getGroupNameOrDefault(taskDO.getGroupName()), nacosListenerMap.get(taskDO.getTaskId()));
             }
         }

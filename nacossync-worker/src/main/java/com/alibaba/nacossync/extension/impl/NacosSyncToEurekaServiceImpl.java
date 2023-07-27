@@ -13,6 +13,7 @@
 
 package com.alibaba.nacossync.extension.impl;
 
+import com.alibaba.nacos.api.naming.NamingService;
 import com.alibaba.nacos.api.naming.pojo.Instance;
 import com.alibaba.nacos.common.utils.CollectionUtils;
 import com.alibaba.nacossync.cache.SkyWalkerCacheServices;
@@ -21,36 +22,38 @@ import com.alibaba.nacossync.constant.SkyWalkerConstants;
 import com.alibaba.nacossync.extension.annotation.NacosSyncService;
 import com.alibaba.nacossync.extension.eureka.EurekaNamingService;
 import com.alibaba.nacossync.extension.holder.EurekaServerHolder;
+import com.alibaba.nacossync.extension.holder.NacosServerHolder;
 import com.alibaba.nacossync.pojo.model.TaskDO;
+import com.google.common.base.Joiner;
 import com.netflix.appinfo.DataCenterInfo;
 import com.netflix.appinfo.InstanceInfo;
 import com.netflix.appinfo.LeaseInfo;
 import com.netflix.appinfo.MyDataCenterInfo;
+import com.netflix.discovery.shared.Application;
+import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.apache.commons.lang3.StringUtils;
+import org.apache.curator.framework.CuratorFramework;
+import org.springframework.beans.factory.annotation.Autowired;
 
-import java.util.HashMap;
-import java.util.List;
-import java.util.Map;
-import java.util.Set;
+import java.util.*;
+import java.util.stream.Collectors;
+
+import static com.alibaba.nacossync.util.DubboConstants.*;
+import static com.alibaba.nacossync.util.NacosUtils.getGroupNameOrDefault;
 
 /**
  * @author zhanglong
  */
+@RequiredArgsConstructor
 @Slf4j
 @NacosSyncService(sourceCluster = ClusterTypeEnum.NACOS, destinationCluster = ClusterTypeEnum.EUREKA)
 public class NacosSyncToEurekaServiceImpl extends AbstractNacosSync {
 
 
     private final EurekaServerHolder eurekaServerHolder;
-
+    private final NacosServerHolder nacosServerHolder;
     private final SkyWalkerCacheServices skyWalkerCacheServices;
-
-    public NacosSyncToEurekaServiceImpl(EurekaServerHolder eurekaServerHolder,
-            SkyWalkerCacheServices skyWalkerCacheServices) {
-        this.eurekaServerHolder = eurekaServerHolder;
-        this.skyWalkerCacheServices = skyWalkerCacheServices;
-    }
-
 
     @Override
     public String composeInstanceKey(String ip, int port) {
@@ -89,7 +92,27 @@ public class NacosSyncToEurekaServiceImpl extends AbstractNacosSync {
             }
         }
     }
-    
+
+    protected void subscribeAllService(TaskDO taskDO) throws Exception {
+        NamingService namingService = nacosServerHolder.get(taskDO.getSourceClusterId());
+        if (!ALL_SERVICE_NAME_PATTERN.equals(taskDO.getServiceName())) {
+            namingService.subscribe(taskDO.getServiceName(), getGroupNameOrDefault(taskDO.getGroupName()),  listenerMap.get(taskDO.getTaskId()));
+        } else {
+            // 需要订阅的服务
+            Set<String> toListenServiceList = new HashSet<>();
+            // 订阅全部Nacos服务
+            List<String> serviceList = namingService.getServicesOfServer(0, Integer.MAX_VALUE, getGroupNameOrDefault(taskDO.getGroupName())).getData().stream().filter(s->!StringUtils.startsWith(s, CONSUMERS_KEY)).collect(Collectors.toList());
+            toListenServiceList.addAll(serviceList);
+            // 订阅Eureka未迁移nacos的服务，等这些服务注册到nacos的时候可以收到监听事件，才能同步给Eureka
+            EurekaNamingService destNamingService = eurekaServerHolder.get(taskDO.getDestClusterId());
+            List<Application> applications = destNamingService.getApplications();
+            toListenServiceList.addAll(applications.stream().map(a->StringUtils.lowerCase(a.getName())).collect(Collectors.toList()));
+
+            for (String serviceName : toListenServiceList) {
+                namingService.subscribe(serviceName, getGroupNameOrDefault(taskDO.getGroupName()), listenerMap.get(taskDO.getTaskId()));
+            }
+        }
+    }
     
     private InstanceInfo buildSyncInstance(Instance instance, TaskDO taskDO, String serviceName) {
         DataCenterInfo dataCenterInfo = new MyDataCenterInfo(DataCenterInfo.Name.MyOwn);
