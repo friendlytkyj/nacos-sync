@@ -27,6 +27,7 @@ import com.alibaba.nacossync.pojo.model.TaskDO;
 import com.google.common.eventbus.EventBus;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.boot.CommandLineRunner;
 import org.springframework.stereotype.Service;
 
@@ -40,6 +41,12 @@ import java.util.concurrent.TimeUnit;
 @Slf4j
 @Service
 public class QuerySyncTaskTimer implements CommandLineRunner {
+
+    @Value("${sync.task.initial-delay:0}")
+    private int initialDelay;
+    @Value("${sync.task.delay:3000}")
+    private int delay;
+
     @Autowired
     private MetricsManager metricsManager;
 
@@ -58,8 +65,7 @@ public class QuerySyncTaskTimer implements CommandLineRunner {
     @Override
     public void run(String... args) {
         /** Fetch the task list from the database every 3 seconds */
-        scheduledExecutorService.scheduleWithFixedDelay(new CheckRunningStatusThread(), 0, 3000,
-                TimeUnit.MILLISECONDS);
+        scheduledExecutorService.scheduleWithFixedDelay(new CheckRunningStatusThread(), initialDelay, delay, TimeUnit.MILLISECONDS);
 
     }
 
